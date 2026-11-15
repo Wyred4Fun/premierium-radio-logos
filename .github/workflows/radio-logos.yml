@@ -1,0 +1,124 @@
+name: Radio logos
+
+# (2026-11-15, his pick: a public repo, set up like premierium-ratings) Premierium's US radio logos, built and cleaned here and read by the box with no key:
+#  1. build_radio_logos.py: the table (call sign + band + frequency -> logo address) from Wikipedia and TuneIn, asking only about stations that are new,
+#     changed or not looked at in a while (the cache), for at most MAX_MINUTES;
+#  2. clean_job.py: every logo the box may show (the table's, and Radio Browser's own) looked at once - a plain white ground taken off and the clean
+#     see-through PNG kept in logos/ - for at most CLEAN_MINUTES; the table gets a line "=<name>" for each clean copy;
+#  3. the clean copies committed to logos/ first, then the table and both caches published as the release "radio-logos" (so the table never names a
+#     file not yet here).
+# The first run starts from seed/ (the last table and cache of the old job on premierium-app). An outage never erases a logo or a clean copy; a table much
+# smaller than the last one is not published. Daily (runs on a public repo cost nothing; once caught up a run takes minutes), when the scripts change, and
+# by hand from the Actions tab.
+on:
+  schedule:
+    - cron: '41 7 * * *'
+  push:
+    branches: [ main ]
+    paths:
+      - '*.py'
+      - 'fcc_calls.tsv.gz'
+      - 'test_logos/**'
+      - '.github/workflows/radio-logos.yml'
+  workflow_dispatch:
+    inputs:
+      allow_smaller:
+        description: 'Publish even when the table is much smaller than the last one (only when the cache was really lost)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+# A run started by a push and the daily one never work at the same time.
+concurrency: radio-logos
+
+jobs:
+  logos:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v5
+
+      - name: Python and its picture tools
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install the picture tools
+        run: python -m pip install --quiet numpy==2.3.4 pillow==12.0.0 scipy==1.16.3
+
+      - name: Test the builder and the cleaning
+        run: python -m unittest -v test_build_radio_logos test_clean_logos
+
+      # The last run's answers (none on a first run: seed/ instead). Only a release that is not there yet counts as "none": a download that fails stops the
+      # job, so a run never starts from nothing and publishes over months of answers.
+      - name: Get the last run's answers
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p prev
+          set +e
+          names=$(gh release view radio-logos --json assets --jq '.assets[].name' 2>prev_err.txt)
+          rc=$?
+          set -e
+          if [ $rc -ne 0 ]; then
+            if grep -qi 'release not found' prev_err.txt; then
+              echo "No release yet: starting from seed/"
+              cp seed/radio_logos.tsv.gz seed/radio_logos_cache.json.gz prev/
+              ls -l prev
+              exit 0
+            fi
+            cat prev_err.txt; echo "Could not read the radio-logos release: stopped"; exit 1
+          fi
+          for f in radio_logos_cache.json.gz radio_logos.tsv.gz radio_logos_clean.json.gz; do
+            if printf '%s\n' "$names" | grep -qx "$f"; then
+              gh release download radio-logos -p "$f" -D prev --clobber
+            else
+              echo "No $f yet"
+            fi
+          done
+          ls -l prev
+
+      - name: Build the table
+        env:
+          MAX_MINUTES: '150'
+          PAUSE: '1.0'
+          ALLOW_SMALLER: ${{ github.event.inputs.allow_smaller == 'true' && '1' || '0' }}
+        run: |
+          mkdir -p dist
+          python build_radio_logos.py fcc_calls.tsv.gz prev/radio_logos_cache.json.gz dist prev/radio_logos.tsv.gz
+          ls -l dist
+
+      - name: Clean the logos
+        env:
+          CLEAN_MINUTES: '170'
+        run: |
+          python clean_job.py dist/radio_logos.tsv.gz prev/radio_logos_clean.json.gz dist/radio_logos_clean.json.gz logos
+          ls -l dist
+
+      # The clean copies first: the table published next may name them.
+      - name: Keep the clean copies
+        run: |
+          git config user.name "radio-logos job"
+          git config user.email "actions@users.noreply.github.com"
+          mkdir -p logos
+          git add -A logos
+          if git diff --cached --quiet; then echo "No change in logos/"; exit 0; fi
+          git commit -q -m "Clean logos: $(git diff --cached --name-only --diff-filter=A | wc -l) new, $(git diff --cached --name-only --diff-filter=M | wc -l) changed, $(git diff --cached --name-only --diff-filter=D | wc -l) let go"
+          git pull -q --rebase origin main
+          git push -q origin HEAD:main
+
+      - name: Publish the table
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: radio-logos
+          name: Radio logos
+          files: |
+            dist/radio_logos.tsv.gz
+            dist/radio_logos_cache.json.gz
+            dist/radio_logos_clean.json.gz
+          make_latest: true
+          overwrite_files: true
+          body: Premierium's table of US radio station logos (call sign, band, frequency -> logo), from Wikipedia and TuneIn, with the clean see-through copies in logos/. Updated daily.

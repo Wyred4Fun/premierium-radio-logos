@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 (2026-11-15, his ask: "every radio station logo ... a clean transparent PNG, with no white box around it") Cleans one logo picture, once, on GitHub - the same
-idea as the box's RadioLogoArt (which only fixes the screen), done properly on the file:
+idea as the app's RadioLogoArt (which only fixes the screen), done properly on the file:
   - already see-through at its edge (WWJ, WWDK)             -> "transparent": kept as it is (no new file);
   - a real ground of its own, not a plain light one (a colored slab, a black square) -> "colored": kept as it is;
   - a plain white or near-white ground (WJR, WUMB, WVOW, WOVU, WSM's jpg) -> "cleaned": the ground joined to the picture's edge goes see-through (a white
@@ -9,7 +9,7 @@ idea as the box's RadioLogoArt (which only fixes the screen), done properly on t
     see-through amount set, so no white fringe shows on a dark screen), the empty margin is trimmed, and it is saved as a PNG;
   - too small to judge, or a cleaning that would leave next to nothing -> kept as it is ("small", "blank");
   - not a picture at all (an error page) -> "bad".
-A picture larger than MAX_SIDE is made smaller first (the box draws a logo at most about 200 px).
+A picture larger than MAX_SIDE is made smaller first (the app draws a logo at most about 200 px).
 Needs Pillow, numpy and scipy. Tests: python3 -m unittest test_clean_logos (in this folder).
 """
 import io
@@ -96,7 +96,7 @@ def load(data):
 
 
 def shown_box(alpha, floor=ALPHA_CLEAR):
-    """The box round the points that show (alpha at least [floor]): top, bottom, left, right (inclusive); None when nothing shows."""
+    """The app round the points that show (alpha at least [floor]): top, bottom, left, right (inclusive); None when nothing shows."""
     rows = np.where((alpha >= floor).any(axis=1))[0]
     cols = np.where((alpha >= floor).any(axis=0))[0]
     if len(rows) == 0:
@@ -312,6 +312,13 @@ def to_png(px):
     except Exception:
         pass
     return full.getvalue()
+
+
+def as_png(data):
+    """(2026-11-19, his ask: a copy of EVERY logo in the repo) A logo kept as it is - made smaller to MAX_SIDE, saved as a PNG (256 colors when close
+    enough) - for one that needs no cleaning (see-through already, a ground of its own); None when it is not a picture."""
+    px = load(data)
+    return None if px is None else to_png(px)
 
 
 def clean(data):

@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
 """
 (2026-11-09, his ask: WWJ, WJR, KTRH and AT40 show only letters - "can we get them all?") Builds radio_logos.tsv.gz, Premierium's table of US radio station
-logos: call sign + band + frequency -> logo picture address. The box (RadioLogos.kt) looks for a newer one about once a day and fills a station's logo from it.
+logos: call sign + band + frequency -> logo picture address. The app (RadioLogos.kt) looks for a newer one about once a day and fills a station's logo from it.
 (2026-11-15, his pick: a public repo) Moved from the app's repo to Wyred4Fun/premierium-radio-logos (public), which runs it daily and publishes the table
 there; clean_job.py then cleans the logos (see there).
 
 For each US AM and FM station in the FCC list (fcc_calls.tsv.gz, a copy of the app's app/src/main/assets/fcc_calls.tsv.gz: call, band, frequency, city,
 state), the ones Radio Browser lists first (the ones the app shows), then the rest:
   1. Wikipedia: the station's article ("CALL (AM)", "CALL-FM", "CALL (FM)" or "CALL") - only when the article's opening text names the station's frequency or
-     city of license - and its LOGO only: (2026-11-10, his find: KMXK/KXSS/WJON had a photo of their studios) the infobox's "logo" field, else the logo
+     city of license - and its LOGO only: (2026-11-10, his find: KMXK/KXSS/WJON had a photo of their studios) the infoapp's "logo" field, else the logo
      (P154) of the article's Wikidata item; the file is drawn by Wikipedia as a 256 px picture (an SVG logo comes as a PNG that keeps its see-through
      background). Never the page's own lead picture (prop=pageimages): that gives only free pictures - a photo of a building, never the (non-free) logo.
   2. TuneIn (opml.radiotime.com Search.ashx) when Wikipedia has none, or only a picture that is not a PNG: a result naming the call sign (as written, and
      no other place on the dial) with its frequency, city or state - or, named by its call sign alone, one whose TuneIn details (Describe.ashx) say so -
      or giving the frequency and the city or state; its "image" (2026-11-15, his find: WSM 650 had "Riddim WSM Radio" of Ottawa).
-  3. Otherwise none (the box keeps Radio Browser's own logo, if it has one).
+  3. Otherwise none (the app keeps Radio Browser's own logo, if it has one).
 A see-through PNG is preferred over other pictures.
 (2026-11-10) Asked first: his own first presets (PRIORITY), then the stations Radio Browser lists (the ones the app shows), most played first, then the rest.
 An answer made the old way (a Wikipedia page picture, or none found) is asked again (LOGO_WAY).
@@ -71,16 +71,16 @@ PRIORITY = ["WWJ", "WIP", "WJR", "KTRH"]
 LOGO_WIDTH = "256"
 PICTURE = re.compile(r"\.(svg|png|jpe?g|gif|webp)$", re.I)
 
-# Names the box has that are not FCC call signs (his first presets): the table key, Wikipedia titles to try, a TuneIn search and the station's whole names.
+# Names the app has that are not FCC call signs (his first presets): the table key, Wikipedia titles to try, a TuneIn search and the station's whole names.
 # (2026-11-13, his report: The Blaze showed Evah Blaze Radio's logo) A TuneIn result is taken only when its name IS one of [names] (case, "The" and
-# punctuation aside), never when it merely has one of their words: "blaze" alone picked an unrelated station. None matching: no logo (letters on the box).
+# punctuation aside), never when it merely has one of their words: "blaze" alone picked an unrelated station. None matching: no logo (letters on the app).
 # Wikipedia only from a named station's own titles, none here: "American Top 40"'s article logo is the show's (Ryan Seacrest's), not Casey Kasem's station.
 EXTRAS = [
     {"call": "AT40", "titles": [], "query": "Classic American Top 40", "names": ["Classic American Top 40", "American Top 40 with Casey Kasem"]},
     {"call": "BLAZE", "titles": [], "query": "The Blaze Radio Network", "names": ["The Blaze Radio Network", "Blaze Radio Network"]},
 ]
 
-# Short forms for the common picture hosts (the box writes them out again): keeps the table small.
+# Short forms for the common picture hosts (the app writes them out again): keeps the table small.
 PREFIXES = [("W:", "https://upload.wikimedia.org/wikipedia/"), ("T:", "https://cdn-profiles.tunein.com/"), ("R:", "https://cdn-radiotime-logos.tunein.com/")]
 
 

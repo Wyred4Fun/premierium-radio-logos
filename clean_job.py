@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
 (2026-11-15, his ask: every radio logo a clean see-through PNG, stored on GitHub) The cleaning step of the logo job, after the table is built
-(build_radio_logos.py). Every logo the box may show - each picture in the table, and (his pick) every Radio Browser US station's own logo - is downloaded
-once and looked at (clean_logos.py): a plain white or near-white ground is taken off and the clean PNG kept in logos/<2>/<name>.png; see-through ones and
-ones with a ground of their own are left as they are (no file). The PNG's name is the first 16 letters of the SHA-1 of the logo's address as the box has it,
-so the box finds the clean copy of any logo from its address alone; the table gets one line "=<name>.<version>" for each clean copy (<version>: the first
-8 letters of the SHA-1 of the file, so a copy made again is fetched again; a line the box's reader of older builds skips: it wants four fields).
+(build_radio_logos.py). Every logo the app may show - each picture in the table, and (his pick) every Radio Browser US station's own logo - is downloaded
+once and looked at (clean_logos.py): a plain white or near-white ground is taken off and the clean PNG kept in logos/<2>/<name>.png. (2026-11-19, his ask,
+after Wikipedia answered his Onn's own requests with 429) Every other picture - see-through ones, ones with a ground of their own - is kept there too, as it
+is (made smaller, as a PNG), so the app loads every logo from this repo and never asks Wikipedia or a station's site itself. The PNG's name is the first 16 letters of the SHA-1 of the logo's address as the app has it,
+so the app finds the clean copy of any logo from its address alone; the table gets one line "=<name>.<version>" for each clean copy (<version>: the first
+8 letters of the SHA-1 of the file, so a copy made again is fetched again; a line the app's reader of older builds skips: it wants four fields).
 
 Polite and resumable like the table: Wikimedia's pictures are fetched as its 330 px thumbnails (its full-size host refuses a run like this), a pause
 between requests to the same site, a cache (radio_logos_clean.json.gz) so a picture is looked at once (again after LOOK_DAYS, or when the cleaning
@@ -47,7 +48,7 @@ THUMB_WIDTH = 330
 
 
 def name_for(url):
-    """The clean copy's name for a logo address: the first 16 letters of its SHA-1 (as the box works it out: RadioLogos.cleanFor)."""
+    """The clean copy's name for a logo address: the first 16 letters of its SHA-1 (as the app works it out: RadioLogos.cleanFor)."""
     return hashlib.sha1(url.encode("utf-8")).hexdigest()[:NAME_LEN]
 
 
@@ -89,7 +90,7 @@ def expand(short):
 
 
 def read_table(path):
-    """The table's lines: (heading, [rows as written], [logo addresses as the box has them]); old "=" lines left out."""
+    """The table's lines: (heading, [rows as written], [logo addresses as the app has them]); old "=" lines left out."""
     head, rows, urls = "", [], []
     with gzip.open(path, "rt", encoding="utf-8") as fh:
         for line in fh:
@@ -114,7 +115,7 @@ def write_table(path, head, rows, names):
 
 
 def radio_browser_logos():
-    """Radio Browser's US stations' own logos (the box shows one when the table has none), most played first; [] when it was not reached."""
+    """Radio Browser's US stations' own logos (the app shows one when the table has none), most played first; [] when it was not reached."""
     for host in table.RADIO_BROWSER_HOSTS:
         try:
             req = urllib.request.Request("https://%s.api.radio-browser.info%s" % (host, table.RADIO_BROWSER_PATH), headers={"User-Agent": AGENT})
@@ -132,9 +133,16 @@ def radio_browser_logos():
     return []
 
 
+# (2026-11-19) The verdicts whose picture is kept as it is (every picture but "bad": not one, or gone).
+KEPT_AS_IS = ("transparent", "colored", "small", "blank")
+
+
 def due(entry, now):
     """Whether a logo address is to be looked at (again)."""
     if not entry or entry.get("k", 0) < CLEAN_WAY:
+        return True
+    # (2026-11-19) A picture looked at before copies of every logo were kept: fetched again for its copy.
+    if entry.get("r") in KEPT_AS_IS and not entry.get("h"):
         return True
     age = now - entry.get("t", 0)
     if entry.get("r") == "bad":
@@ -187,7 +195,13 @@ def look(url, now, entry, folder, get=download):
         print("could not look at %s: %s" % (url[:100], type(x).__name__))
         res = clean_logos.Result("bad", note="error")
     e = {"r": res.verdict, "t": now, "k": CLEAN_WAY, "h": ""}
-    if res.png:
+    png = res.png
+    if png is None and res.verdict in KEPT_AS_IS:
+        try:
+            png = clean_logos.as_png(data)
+        except Exception as x:
+            print("could not copy %s: %s" % (url[:100], type(x).__name__))
+    if png:
         name = name_for(url)
         p = path_for(folder, name)
         os.makedirs(os.path.dirname(p), exist_ok=True)
@@ -195,9 +209,9 @@ def look(url, now, entry, folder, get=download):
         if os.path.exists(p):
             with open(p, "rb") as fh:
                 old = fh.read()
-        if old != res.png:
+        if old != png:
             with open(p + ".part", "wb") as fh:
-                fh.write(res.png)
+                fh.write(png)
             os.replace(p + ".part", p)
         e["h"] = name
     elif res.verdict == "bad" and entry and entry.get("h"):
@@ -226,7 +240,7 @@ def let_go(cache, folder, now, known):
 
 
 def version_of(path):
-    """The first 8 letters of the SHA-1 of a clean copy's bytes: the box asks for <name>.png?v=<this>, so a copy made again is fetched again."""
+    """The first 8 letters of the SHA-1 of a clean copy's bytes: the app asks for <name>.png?v=<this>, so a copy made again is fetched again."""
     with open(path, "rb") as fh:
         return hashlib.sha1(fh.read()).hexdigest()[:8]
 
@@ -265,7 +279,7 @@ def run(table_path, cache_in, cache_out, folder, deadline, rb=None, get=download
     print("%d logo addresses (%d from Radio Browser), %d to look at" % (len(order), len(set(rb_urls)), len(todo)))
     last_at = {}
     refused = {}
-    looked = cleaned = missed = 0
+    looked = cleaned = copied = missed = 0
     for u in todo:
         if time.time() > deadline:
             print("time is up: %d left for the next run" % (len(todo) - looked - missed))
@@ -290,6 +304,7 @@ def run(table_path, cache_in, cache_out, folder, deadline, rb=None, get=download
         cache[u] = e
         looked += 1
         cleaned += 1 if e.get("h") and e["r"] == "cleaned" else 0
+        copied += 1 if e.get("h") and e["r"] != "cleaned" else 0
         if looked % 500 == 0:
             print("looked at %d" % looked)
     gone = let_go(cache, folder, now, known)
@@ -303,12 +318,14 @@ def run(table_path, cache_in, cache_out, folder, deadline, rb=None, get=download
         r = cache.get(u, {}).get("r")
         if r:
             kinds[r] = kinds.get(r, 0) + 1
-    print("looked at %d this run (%d cleaned), %d not reached; %d clean copies in use, %d let go; all so far: %s" % (looked, cleaned, missed, len(names), gone, kinds))
+    print("looked at %d this run (%d cleaned, %d kept as they are), %d not reached; %d copies in use, %d let go; all so far: %s" % (looked, cleaned, copied, missed, len(names), gone, kinds))
     return names
 
 
 if __name__ == "__main__":
     if len(sys.argv) != 5:
         sys.exit(__doc__)
-    minutes = float(os.environ.get("CLEAN_MINUTES", "120"))
-    run(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], time.time() + minutes * 60)
+    # (2026-11-19) CLEAN_UNTIL (the workflow's: its start + what the run may use) gives the cleaning all the time the table left; else CLEAN_MINUTES.
+    until = os.environ.get("CLEAN_UNTIL", "")
+    deadline = float(until) if until else time.time() + float(os.environ.get("CLEAN_MINUTES", "120")) * 60
+    run(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], deadline)

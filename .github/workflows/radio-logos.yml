@@ -1,10 +1,10 @@
 name: Radio logos
 
-# (2026-11-15, his pick: a public repo, set up like premierium-ratings) Premierium's US radio logos, built and cleaned here and read by the box with no key:
+# (2026-11-15, his pick: a public repo, set up like premierium-ratings) Premierium's US radio logos, built and cleaned here and read by the app with no key:
 #  1. build_radio_logos.py: the table (call sign + band + frequency -> logo address) from Wikipedia and TuneIn, asking only about stations that are new,
 #     changed or not looked at in a while (the cache), for at most MAX_MINUTES;
-#  2. clean_job.py: every logo the box may show (the table's, and Radio Browser's own) looked at once - a plain white ground taken off and the clean
-#     see-through PNG kept in logos/ - for at most CLEAN_MINUTES; the table gets a line "=<name>" for each clean copy;
+#  2. clean_job.py: every logo the app may show (the table's, and Radio Browser's own) looked at once and kept in logos/ - a plain white ground taken off,
+#     every other picture kept as it is (2026-11-19) - until 320 minutes after the start; the table gets a line "=<name>.<version>" for each copy;
 #  3. the clean copies committed to logos/ first, then the table and both caches published as the release "radio-logos" (so the table never names a
 #     file not yet here).
 # The first run starts from seed/ (the last table and cache of the old job on premierium-app). An outage never erases a logo or a clean copy; a table much
@@ -38,6 +38,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 350
     steps:
+      # (2026-11-19) The cleaning may use whatever time the table leaves, up to 320 minutes from here (the job's limit is 350).
+      - name: Note the time
+        run: echo "CLEAN_UNTIL=$(( $(date +%s) + 320 * 60 ))" >> "$GITHUB_ENV"
+
       - name: Check out the repo
         uses: actions/checkout@v5
 
@@ -92,8 +96,6 @@ jobs:
           ls -l dist
 
       - name: Clean the logos
-        env:
-          CLEAN_MINUTES: '170'
         run: |
           python clean_job.py dist/radio_logos.tsv.gz prev/radio_logos_clean.json.gz dist/radio_logos_clean.json.gz logos
           ls -l dist

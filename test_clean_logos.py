@@ -143,7 +143,7 @@ class Made(unittest.TestCase):
     def test_see_through_kept(self):
         im = disc_on((0, 0, 0, 0), mode="RGBA")
         self.assertEqual(c.clean(png(im)).verdict, "transparent")
-        # a see-through margin round a white plate: the plate goes (as the box does)
+        # a see-through margin round a white plate: the plate goes (as the app does)
         im = Image.new("RGBA", (140, 100), (0, 0, 0, 0))
         im.paste(disc_on((255, 255, 255), size=80).convert("RGBA"), (30, 10))
         self.assertEqual(c.clean(png(im)).verdict, "cleaned")
@@ -231,12 +231,17 @@ class Job(unittest.TestCase):
 
     def test_due(self):
         now = 10 ** 9
+        # (2026-11-19) looked at before every logo got a copy: fetched again for its copy; one with its copy, or "bad", not
+        self.assertTrue(job.due({"r": "transparent", "t": now, "k": job.CLEAN_WAY, "h": ""}, now))
+        self.assertTrue(job.due({"r": "colored", "t": now, "k": job.CLEAN_WAY}, now))
+        self.assertFalse(job.due({"r": "colored", "t": now, "k": job.CLEAN_WAY, "h": "0123456789abcdef"}, now))
+        self.assertFalse(job.due({"r": "bad", "t": now, "k": job.CLEAN_WAY, "h": ""}, now))
         self.assertTrue(job.due(None, now))
         self.assertFalse(job.due({"r": "cleaned", "t": now, "k": job.CLEAN_WAY}, now))
         self.assertTrue(job.due({"r": "cleaned", "t": now, "k": job.CLEAN_WAY - 1}, now))
         self.assertTrue(job.due({"r": "bad", "t": now - 31 * job.DAY, "k": job.CLEAN_WAY}, now))
         self.assertFalse(job.due({"r": "bad", "t": now - 5 * job.DAY, "k": job.CLEAN_WAY}, now))
-        self.assertTrue(job.due({"r": "transparent", "t": now - 181 * job.DAY, "k": job.CLEAN_WAY}, now))
+        self.assertTrue(job.due({"r": "transparent", "t": now - 181 * job.DAY, "k": job.CLEAN_WAY, "h": "0123456789abcdef"}, now))
 
     def make_table(self, d, rows):
         p = os.path.join(d, "t.tsv.gz")
@@ -258,7 +263,10 @@ class Job(unittest.TestCase):
                     return None
                 return pics[u]
             names = job.run(t, None, out, folder, 1e18, rb=["https://rb/fav.png"], get=get, pause=False)
-            self.assertEqual(names, {job.name_for("https://x/white.png"), job.name_for("https://rb/fav.png")})
+            # (2026-11-19) every picture gets a copy: the cleaned ones and the see-through one as it is; the one not there (404) none
+            self.assertEqual(names, {job.name_for("https://x/white.png"), job.name_for("https://rb/fav.png"), job.name_for("https://x/clear.png")})
+            kept = arr(open(job.path_for(folder, job.name_for("https://x/clear.png")), "rb").read())
+            self.assertEqual(kept[0, 0, 3], 0)   # kept see-through, not trimmed or changed
             for n in names:
                 self.assertTrue(os.path.exists(job.path_for(folder, n)))
             with gzip.open(t, "rt") as fh:

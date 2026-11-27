@@ -63,6 +63,19 @@ class Made(unittest.TestCase):
         self.assertEqual(light_fringe(a, (246, 248, 243)), 0)
         self.assertTrue(r.png.startswith(b"\x89PNG"))
 
+    def test_middles_of_heavy_numerals_go(self):
+        # (96.9, Way FM) the white inside a heavy 0 / 6 / 9: a round middle close to the outside, one or two to a piece - see-through; a banner's white letters stay
+        im = Image.new("RGB", (400, 160), "white")
+        d = ImageDraw.Draw(im)
+        for x in (30, 150, 270):
+            d.ellipse([x, 20, x + 100, 140], fill=(200, 20, 30))
+            d.ellipse([x + 32, 45, x + 68, 115], fill="white")
+        a = arr(c.clean(png(im)).png)
+        from scipy import ndimage
+        lab, n = ndimage.label(a[:, :, 3] == 0)
+        edge = set(np.unique(np.concatenate([lab[0], lab[-1], lab[:, 0], lab[:, -1]])).tolist())
+        self.assertEqual(len([i for i in range(1, n + 1) if i not in edge]), 3)
+
     def test_interior_white_stays(self):
         # a red badge with a small white middle: the middle is the artwork's own (not joined to the edge, the badge far bigger than it)
         im = Image.new("RGB", (120, 120), "white")
@@ -227,7 +240,37 @@ class Job(unittest.TestCase):
                          "https://thumb.wikimedia.org/wikipedia/en/thumb/8/8d/WVOW.PNG/330px-WVOW.PNG")
         self.assertEqual(job.fetch_address("https://upload.wikimedia.org/wikipedia/commons/thumb/7/75/W.png/256px-W.png"),
                          "https://thumb.wikimedia.org/wikipedia/commons/thumb/7/75/W.png/330px-W.png")
-        self.assertEqual(job.fetch_address("https://cdn-profiles.tunein.com/s1/images/logoq.jpg?t=1"), "https://cdn-profiles.tunein.com/s1/images/logoq.jpg?t=1")
+        self.assertEqual(job.fetch_address("https://cdn-profiles.tunein.com/s1/images/logod.jpg?t=1"), "https://cdn-profiles.tunein.com/s1/images/logod.jpg?t=1")
+
+    def test_fetch_address_asks_for_the_large_picture(self):
+        small = 'https://i.iheart.com/v3/re/assets.brands/5f69?ops=gravity("center"),contain(32,32),quality(65)'
+        self.assertEqual(job.fetch_address(small), 'https://i.iheart.com/v3/re/assets.brands/5f69?ops=gravity("center"),contain(400,400),quality(90)')
+        self.assertEqual(job.fetch_address("https://i.iheart.com/v3/re/assets.brands/5f69"), "https://i.iheart.com/v3/re/assets.brands/5f69")
+        self.assertEqual(job.fetch_address("https://cdn-profiles.tunein.com/s1/images/logoq.jpg"), "https://cdn-profiles.tunein.com/s1/images/logog.jpg")
+        self.assertEqual(job.fetch_address("https://cdn-radiotime-logos.tunein.com/s106474q.png"), "https://cdn-radiotime-logos.tunein.com/s106474g.png")
+        self.assertEqual(job.fetch_address("https://cdn-profiles.tunein.com/s1/images/logod.jpg?t=1"), "https://cdn-profiles.tunein.com/s1/images/logod.jpg?t=1")
+
+    def test_large_picture_missing_falls_back_to_the_address(self):
+        asked = []
+        def get(u):
+            asked.append(u)
+            return None if "logog" in u else png(Image.new('RGB', (200, 100), (200, 20, 30)))
+        small = "https://cdn-profiles.tunein.com/s1/images/logoq.jpg"
+        with tempfile.TemporaryDirectory() as d:
+            e = job.look(small, 1000, None, d, get=get)
+        self.assertEqual(asked, ["https://cdn-profiles.tunein.com/s1/images/logog.jpg", small])
+        self.assertNotEqual(e["r"], "bad")
+
+    def test_wikimedia_missing_thumb_does_not_ask_twice(self):
+        asked = []
+        def get(u):
+            asked.append(u)
+            return None
+        url = "https://upload.wikimedia.org/wikipedia/en/2/24/WLRD_logo.png"
+        with tempfile.TemporaryDirectory() as d:
+            e = job.look(url, 1000, None, d, get=get)
+        self.assertEqual(len(asked), 1)
+        self.assertEqual(e["r"], "bad")
 
     def test_due(self):
         now = 10 ** 9

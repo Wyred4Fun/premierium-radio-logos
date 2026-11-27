@@ -57,6 +57,13 @@ COUNTER_AREA = 3
 COUNTER_MIN_AREA = 0.5
 COUNTER_INNER = 4
 COUNTER_DARK = 110
+ROUND_MAX_SHARE = 0.04
+ROUND_SOLID = 0.88
+ROUND_BOX = 0.88
+ROUND_WALL = 0.35
+ROUND_REACH = 2.4
+ROUND_HOLES = 4
+ROUND_WALL_SHARE = 0.85
 # Left with less than this share of the picture showing: "blank" (kept as it was).
 MIN_LEFT = 0.005
 
@@ -230,6 +237,65 @@ def counters(labels, edge_labels, art, rgb, alpha, h, w):
     return out
 
 
+def round_counters(labels, edge_labels, art, h, w):
+    """(2026-11-23, his find: the insides of the 6 and the 9 in 96.9, of the 0s and the 9 in Way FM stayed bright white) The ground seen through a heavy numeral
+    or letter: a patch not joined to the edge that is small (at most ROUND_MAX_SHARE of the picture), round-bodied (fills at least ROUND_SOLID of its convex hull, which a white
+    letter cut into a colored banner - a W, a J - never does, and at most ROUND_BOX of its bounding box, which a plain rectangle always exceeds), and holds no artwork of its own inside (a ringed badge keeps its white). Goes see-through."""
+    from scipy.spatial import ConvexHull
+    out = np.zeros((h, w), bool)
+    n = labels.max()
+    if n == 0:
+        return out
+    sizes = ndimage.sum(np.ones((h, w)), labels, index=np.arange(n + 1))
+    edge = set(edge_labels.tolist())
+    objs = ndimage.find_objects(labels)
+    to_outside = ndimage.distance_transform_edt(~np.isin(labels, edge_labels))
+    # Who holds how many patches: a piece of artwork with more than ROUND_HOLES of them (a banner with its white letters cut in) is not a numeral with its middles.
+    alab, an = ndimage.label(art, structure=np.ones((3, 3), bool))
+    held = {}
+    for i in range(1, n + 1):
+        if i in edge or sizes[i] < COUNTER_MIN or objs[i - 1] is None:
+            continue
+        sl = objs[i - 1]
+        y0, y1, x0, x1 = max(0, sl[0].start - 1), min(h, sl[0].stop + 1), max(0, sl[1].start - 1), min(w, sl[1].stop + 1)
+        m = labels[y0:y1, x0:x1] == i
+        for c in np.unique(alab[y0:y1, x0:x1][ndimage.binary_dilation(m, structure=np.ones((3, 3), bool)) & ~m]):
+            if c > 0:
+                held[c] = held.get(c, 0) + 1
+    for i in range(1, n + 1):
+        if i in edge or sizes[i] < COUNTER_MIN or sizes[i] > ROUND_MAX_SHARE * h * w or objs[i - 1] is None:
+            continue
+        sl = objs[i - 1]
+        m = labels[sl] == i
+        if (ndimage.binary_fill_holes(m) & ~m & art[sl]).sum() >= max(COUNTER_INNER, 0.01 * sizes[i]):
+            continue
+        ys, xs = np.nonzero(m)
+        pts = np.stack([xs, ys], 1).astype(float)
+        try:
+            hull = ConvexHull(np.concatenate([pts + o for o in ((0, 0), (1, 0), (0, 1), (1, 1))]))
+        except Exception:
+            continue
+        box = m.shape[0] * m.shape[1]
+        if not (sizes[i] >= ROUND_SOLID * hull.volume and sizes[i] <= ROUND_BOX * box):
+            continue
+        # A heavy stroke, not a thin outline: the artwork round the patch, as far out as ROUND_WALL of its radius, is solid (a ring drawn 3 points wide round a big white middle keeps it).
+        k = max(2, int(round(ROUND_WALL * np.sqrt(sizes[i] / np.pi))))
+        y0, y1 = max(0, sl[0].start - k - 1), min(h, sl[0].stop + k + 1)
+        x0, x1 = max(0, sl[1].start - k - 1), min(w, sl[1].stop + k + 1)
+        pm = labels[y0:y1, x0:x1] == i
+        wall = ndimage.binary_dilation(pm, structure=np.ones((3, 3), bool), iterations=k) & ~pm
+        # ...and a stroke the outside is close to (within ROUND_REACH radii): the middle of a red badge far from its rim is the badge's own white.
+        y0b, y1b, x0b, x1b = max(0, sl[0].start - 1), min(h, sl[0].stop + 1), max(0, sl[1].start - 1), min(w, sl[1].stop + 1)
+        mb = labels[y0b:y1b, x0b:x1b] == i
+        owners = np.unique(alab[y0b:y1b, x0b:x1b][ndimage.binary_dilation(mb, structure=np.ones((3, 3), bool)) & ~mb])
+        if any(held.get(c, 0) > ROUND_HOLES for c in owners if c > 0):
+            continue
+        near = to_outside[sl][m].min() <= ROUND_REACH * np.sqrt(sizes[i] / np.pi)
+        if near and art[y0:y1, x0:x1][wall].mean() >= ROUND_WALL_SHARE:
+            out |= labels == i
+    return out
+
+
 def unblend(px, ground):
     """The plain ground joined to the edge goes see-through; the artwork's soft edge next to it is un-blended (no fringe). Returns RGBA uint8."""
     h, w = px.shape[:2]
@@ -252,6 +318,7 @@ def unblend(px, ground):
         return None
     gone |= letter_holes(labels, edge_labels, gone, h, w)
     gone |= counters(labels, edge_labels, ~passable, rgb, alpha, h, w)
+    gone |= round_counters(labels, edge_labels, ~passable, h, w)
     # The soft edge: points next to what went (within BAND), not themselves gone.
     near = ndimage.binary_dilation(gone, structure=np.ones((3, 3), bool), iterations=BAND) & ~gone
     band = near & (d < SOFT)

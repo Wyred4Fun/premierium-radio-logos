@@ -32,8 +32,8 @@ import build_radio_logos as table
 import clean_logos
 
 AGENT = "PremieriumRadioLogos/1.0 (https://github.com/Wyred4Fun/premierium-radio-logos; Android TV radio app logo cleaning)"
-# (2026-11-15) Raised when the cleaning changes: every picture is looked at again.
-CLEAN_WAY = 1
+# (2026-11-15) Raised when the cleaning changes: every picture is looked at again. (2026-11-26) 2: the middles of heavy numerals go see-through; iHeart / TuneIn logos fetched large.
+CLEAN_WAY = 2
 LOOK_DAYS = 180         # a picture looked at is looked at again after this long (a site may change the file behind the same address)
 BAD_DAYS = 30           # not a picture / gone (404): asked again after this long
 UNUSED_DAYS = 90        # a clean copy no logo has used for this long is let go
@@ -57,6 +57,8 @@ def path_for(folder, name):
 
 
 WIKI_ORIGINAL = re.compile(r"^https://upload\.wikimedia\.org/wikipedia/([^/]+)/([0-9a-f])/([0-9a-f]{2})/([^?/]+)(?:\?.*)?$")
+IHEART_OPS = re.compile(r"^(https://i\.iheart\.com/[^?]*\?ops=[^ ]*?)contain\((\d+),(\d+)\)(.*?)quality\((\d+)\)(.*)$")
+TUNEIN_SMALL = re.compile(r"^(https://cdn-(?:profiles|radiotime-logos)\.tunein\.com/(?:s\d+/images/logo|s\d+))q(\.(?:png|jpg).*)$")
 WIKI_THUMB = re.compile(r"^https://(?:upload|thumb)\.wikimedia\.org/wikipedia/([^/]+)/thumb/([0-9a-f])/([0-9a-f]{2})/([^/]+)/(\d+)px-[^?]*(?:\?.*)?$")
 
 
@@ -72,6 +74,13 @@ def fetch_address(url):
         proj, a, ab, f, _ = m.groups()
         tail = f + (".png" if f.lower().endswith(".svg") else "")
         return "https://thumb.wikimedia.org/wikipedia/%s/thumb/%s/%s/%s/%dpx-%s" % (proj, a, ab, f, THUMB_WIDTH, tail)
+    m = IHEART_OPS.match(url)
+    if m:
+        # (2026-11-26) iHeart's address often asks for a 32 or 167 pixel picture (the station's small favicon); the same picture is served at 400 pixels.
+        return m.group(1) + 'contain(400,400)' + m.group(4) + 'quality(90)' + m.group(6)
+    m = TUNEIN_SMALL.match(url)
+    if m:
+        return m.group(1) + "g" + m.group(2)   # TuneIn: the small one's big twin (up to 600 pixels)
     return url
 
 
@@ -185,6 +194,9 @@ def look(url, now, entry, folder, get=download):
     """Looks at one logo: a new cache entry (a clean copy written when there is one), or None when it was not reached (the old entry stays)."""
     try:
         data = get(fetch_address(url))
+        if data is None and fetch_address(url) != url and site(url) in ("i.iheart.com", "cdn-profiles.tunein.com", "cdn-radiotime-logos.tunein.com"):
+            time.sleep(PAUSE_SAME_SITE)
+            data = get(url)   # (2026-11-26) the larger twin of an iHeart / TuneIn address is not there for every station: the address as the app has it
     except Refused:
         return None
     if data is None:

@@ -381,6 +381,42 @@ def to_png(px):
     return full.getvalue()
 
 
+BAR_SPREAD = 14      # a row is one flat colour when no channel varies by more than this
+BAR_SAME = 40        # the top and the bottom bar are the same colour when they differ by less than this (sum over the channels)
+BAR_MIN = 0.06       # each bar is at least this share of the height
+BAR_KEEP = 0.30      # what is between the bars is at least this share of the height
+BAR_LIGHT = 200      # bars lighter than this (white padding) are the ground's business, not a letterbox
+
+
+def trim_letterbox(px):
+    """(2026-11-27, his ask: WSPT 97.9) A logo set between two flat dark bars (black above and below, the way a wide picture is letterboxed) is cut down to what is
+    between them, so the middle is judged by itself: a white band with the lettering then comes clean. Both bars must be there, flat, the same colour and not light;
+    otherwise the picture is returned as it is. Only rows are looked at: the bars of a logo are across its whole width."""
+    h = px.shape[0]
+    if h < 12 or (px[:, :, 3] < 250).mean() > 0.02:
+        return px
+    rgb = px[:, :, :3].astype(int)
+    flat = (rgb.max(axis=1) - rgb.min(axis=1)).max(axis=1) <= BAR_SPREAD
+    colour = np.median(rgb, axis=1)
+    top = 0
+    while top < h and flat[top] and abs(colour[top] - colour[0]).sum() < BAR_SAME:
+        top += 1
+    bot = 0
+    while bot < h and flat[h - 1 - bot] and abs(colour[h - 1 - bot] - colour[h - 1]).sum() < BAR_SAME:
+        bot += 1
+    if top < BAR_MIN * h or bot < BAR_MIN * h or h - top - bot < BAR_KEEP * h:
+        return px
+    # The row or two where the bar meets the picture is a blend of both (scaling): grey between a black bar and a white band. They go with the bar.
+    for _ in range(2):
+        if top < h - 1 and flat[top] and colour[0].mean() + 12 < colour[top].mean() < colour[top + 1].mean() - 12:
+            top += 1
+        if bot < h - 1 and flat[h - 1 - bot] and colour[h - 1].mean() + 12 < colour[h - 1 - bot].mean() < colour[h - 2 - bot].mean() - 12:
+            bot += 1
+    if abs(colour[0] - colour[h - 1]).sum() >= BAR_SAME or colour[0].mean() > BAR_LIGHT:
+        return px
+    return px[top:h - bot]
+
+
 def as_png(data):
     """(2026-11-19, his ask: a copy of EVERY logo in the repo) A logo kept as it is - made smaller to MAX_SIDE, saved as a PNG (256 colors when close
     enough) - for one that needs no cleaning (see-through already, a ground of its own); None when it is not a picture."""
@@ -396,6 +432,7 @@ def clean(data):
     h, w = px.shape[:2]
     if min(h, w) < MIN_SIDE:
         return Result("small", size=(w, h))
+    px = trim_letterbox(px)
     kind, cut, g = classify(px)
     if kind != "white":
         return Result(kind, size=(w, h), note=("ground %s" % np.round(g).astype(int).tolist()) if g is not None else "")

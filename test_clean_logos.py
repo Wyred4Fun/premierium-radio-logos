@@ -76,6 +76,35 @@ class Made(unittest.TestCase):
         edge = set(np.unique(np.concatenate([lab[0], lab[-1], lab[:, 0], lab[:, -1]])).tolist())
         self.assertEqual(len([i for i in range(1, n + 1) if i not in edge]), 3)
 
+    def test_letterbox_bars_come_off(self):
+        # (WSPT 97.9) a white band with lettering between two flat black bars: the bars go, then the white comes off like any white ground
+        im = Image.new("RGB", (300, 150), (0, 0, 0))
+        d = ImageDraw.Draw(im)
+        d.rectangle([0, 40, 299, 109], fill="white")
+        d.rectangle([20, 55, 280, 95], fill=(200, 20, 30))
+        res = c.clean(png(im))
+        self.assertEqual(res.verdict, "cleaned")
+        a = arr(res.png)
+        shown = a[a[:, :, 3] > 128][:, :3]
+        self.assertGreater(len(shown), 0)
+        self.assertGreater(shown[:, 0].min(), 150)  # only the red lettering band is left: no black from the bars
+        self.assertLess(a.shape[0], 100)
+
+    def test_letterbox_needs_both_bars_and_a_dark_colour(self):
+        # a black header alone, or white bars, is not a letterbox: the picture is judged as it is
+        one = Image.new("RGB", (300, 150), "white")
+        ImageDraw.Draw(one).rectangle([0, 0, 299, 40], fill=(0, 0, 0))
+        self.assertEqual(c.trim_letterbox(np.array(one.convert("RGBA"))).shape[0], 150)
+        light = Image.new("RGB", (300, 150), (240, 240, 240))
+        ImageDraw.Draw(light).rectangle([20, 40, 280, 110], fill=(20, 20, 200))
+        self.assertEqual(c.trim_letterbox(np.array(light.convert("RGBA"))).shape[0], 150)
+        # lettering in a bar is not lost: the picture it sits in is kept
+        text_in_bar = Image.new("RGB", (300, 150), (0, 0, 0))
+        ImageDraw.Draw(text_in_bar).rectangle([0, 40, 299, 109], fill="white")
+        ImageDraw.Draw(text_in_bar).text((100, 14), "NEWS", fill="white")
+        got = c.trim_letterbox(np.array(text_in_bar.convert("RGBA")))
+        self.assertGreater((got[:20, :, :3].sum(axis=2) > 600).sum(), 0)
+
     def test_interior_white_stays(self):
         # a red badge with a small white middle: the middle is the artwork's own (not joined to the edge, the badge far bigger than it)
         im = Image.new("RGB", (120, 120), "white")
